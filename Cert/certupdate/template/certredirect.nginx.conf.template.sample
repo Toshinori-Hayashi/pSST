@@ -1,0 +1,17 @@
+##### get cert from Let's encrypt
+server {    #
+  listen      __LISTEN__;
+  server_name __DOMAIN__;
+
+  access_log  off;
+  # access_log  __ACCESSLOG__;
+  # error_log   __ERRORLOG__;
+
+  location ^~ /.well-known/acme-challenge/ {
+    proxy_pass __PROXYPASS__
+  }
+
+  location / {
+    rewrite        ^ https://$http_host$request_uri? permanent;
+  }
+}
