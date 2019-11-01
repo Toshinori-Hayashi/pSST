@@ -1,10 +1,11 @@
 # format: shell env. definition manner.
 #
+
 # __CONF="./config.file"
 
 # __WEBROOT="/usr/local/www/htdocs"
 # __DESTDIR="/usr/local/etc/nginx/sites"
-# __TEMPLATE="/path/to/template/certchlg.nginx.conf.template"
+# __TEMPLATE_C="/path/to/template/certchlg.nginx.conf.template"
 
 # __LISTEN="80"
 # __ACCESSLOG="/var/log/nginx/acme-challenge.access.log"
@@ -13,7 +14,9 @@
 
 # __DUSER="distribute_user"		# use ssh
 # __TARGET="hostname_or_ip"
+# __TEMPLATE_R="/path/to/template/certredirect.nginx.conf.template"
+# __TGTLISTEN="192.168.1.111:80"
 # __TGTDIR="/usr/local/etc/nginx/sites"
 # __TGTPRX="http://cert.exsample.com"
-# __TGTLISTEN="192.168.1.111:80"
+
 
