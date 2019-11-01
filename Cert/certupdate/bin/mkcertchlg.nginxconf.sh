@@ -4,6 +4,9 @@
 #   Let's Encrypt certificate challeng conf maker.
 #   Author: T.Hayashi (hayashi@rookie-inc.com)
 #   License: BSD 2 clause
+#
+#   Test: FreeBSD only
+#
 ##############################################################################
 ### Initial value.
 __VERSION="0.1"
@@ -48,6 +51,23 @@ _EOT_
   exit 1
 }
 
+can_connect(){
+  if [ -z "${1}" ]; then
+    echo >&2 "Error: can_connect: require sudo user name."
+    echo "1"
+    return
+  fi
+  if [ -z "${2}" ]; then
+    echo >&2 "Error: can_connect: require hostname or IP address"
+    echo "1"
+    return
+  fi
+  sudo  -u ${1} ssh -q -T                                                     \
+        -o "PasswordAuthentication no"                                        \
+        -o "StrictHostKeyChecking no" ${2} ":"                                &&
+        echo "0" || echo "1"
+}
+
 ##### Main #####
 
 ### Get options.
@@ -73,6 +93,8 @@ while getopts "dtC:D:T:W:" __FLAG__; do
     ;;
   esac
 done
+shift $(( ${OPTIND} - 1 ))
+__DOMAIN="${1}"
 
 ### include config.
 if [ -e ${__CONF} ]; then
@@ -80,71 +102,133 @@ if [ -e ${__CONF} ]; then
   [ ${?} -ne 0 ] && echo "Error: Configuration file ${__CONF} is somthing wrong. check it." && exit 1
 fi
 
-shift $(( ${OPTIND} - 1 ))
-__DOMAIN="${1}"
+### Set default value.
+: ${__WEBROOT:="${__HOME}/htdocs"}              # ACME WebRoot Directory.
+: ${__CONF:="${__HOME}/mkcertchlg.nginxconf.conf"}  # configuration file.
+: ${__TEMPLATE_C:="${__HOME}/template/certchlg.nginx.conf.template"}  # local template file.
+: ${__TEMPLATE_R:="${__HOME}/template/certredir.nginx.conf.template"} # remote template file.
+: ${__DESTDIR:="/usr/local/etc/nginx/conf.d"}    # local Destination Dir.
+: ${__TGTDIR:="/usr/local/etc/nginx/conf.d"}     # remote Destination Dir.
+: ${__NGINXCONF_C_FILE:=".acme.challeng.conf"}  # local Destination file.
+: ${__NGINXCONF_R_FILE:=".acme.proxy.conf"}     # remote Destination file.
+: ${__DUSER:=$(id -u -n)}   # use ssh
+__NGINXCONF_C="${__DESTDIR}/${__DOMAIN}${__NGINXCONF_C_FILE}"
+__NGINXCONF_R="${__TGTDIR}/${__DOMAIN}${__NGINXCONF_R_FILE}"
 
+if [ "${__DBG}" -ne 0 ]; then
+  cu_debug "Test            = ${__TEST}"
+  cu_debug "TMP local       = ${__TMP}"
+  cu_debug "conf            = ${__CONF}"
+  cu_debug "Webroot         = ${__WEBROOT}"
+  cu_debug "local conf Dir  = ${__DESTDIR}"
+  cu_debug "template local  = ${__TEMPLATE_C}"
+  cu_debug "Domain          = ${__DOMAIN}"
+  cu_debug "LISTEN          = ${__LISTEN}"
+  cu_debug "ACCESSLOG       = ${__ACCESSLOG}"
+  cu_debug "ERRORLOG        = ${__ERRORLOG}"
+  cu_debug "NginxConf local = ${__NGINXCONF_C}"
+  cu_debug "Remote          = ${__TARGET}"
+  cu_debug "ssh user        = ${__DUSER}"
+  cu_debug "template Remote = ${__TEMPLATE_R}"
+  cu_debug "Remote conf Dir = ${__TGTDIR}"
+  cu_debug "LISTEN remote   = ${__TGTLISTEN}"
+  cu_debug "PROXYPASS remote= ${__TGTPRX}"
+fi
+
+### check Options,Args and optional settings
+# check domain
 if [ -z "${__DOMAIN}" ]; then
   echo "Error: ${__COMMAND} Rquirement Domain."
   cu_usage
 fi
 
-### Set default value.
-: ${__WEBROOT:="${__HOME}/htdocs"}        # ACME WebRoot Directory.
-: ${__CONF:="${__HOME}/mkcertchlg.nginxconf.conf"}  # configuration file.
-: ${__TEMPLATE:="${__HOME}/template/certchlg.nginx.conf.template"}  # template file.
-: ${__DESTDIR:="/usr/local/etc/nginx/conf.d"} # Destination Dir.
-: ${__NGINXCONFFILE:=".acme.challeng.conf"} # Destination file.
-__NGINXCONF="${__DESTDIR}/${__DOMAIN}${__NGINXCONFFILE}"
-
-if [ "${__DBG}" -ne 0 ]; then
-  cu_debug "Test      = ${__TEST}"
-  cu_debug "TMP       = ${__TMP}"
-  cu_debug "conf      = ${__CONF}"
-  cu_debug "dist user = ${__DUSER}"
-  cu_debug "Webroot   = ${__WEBROOT}"
-  cu_debug "Dest Dir  = ${__DESTDIR}"
-  cu_debug "template  = ${__TEMPLATE}"
-  cu_debug "Domain    = ${__DOMAIN}"
-  cu_debug "LISTEN    = ${__LISTEN}"
-  cu_debug "ACCESSLOG = ${__ACCESSLOG}"
-  cu_debug "ERRORLOG  = ${__ERRORLOG}"
-  cu_debug "NginxConf = ${__NGINXCONF}"
-fi
-
-if [ -e ${__TEMPLATE} ]; then
-  cp ${__TEMPLATE} ${__TMP}
-  __PROCFILE="${__TMP}/$(basename ${__TEMPLATE})"
+# check cert challenge template
+if [ -e ${__TEMPLATE_C} ]; then
+  cp ${__TEMPLATE_C} ${__TMP}
+  __PROCFILE_C="${__TMP}/$(basename ${__TEMPLATE_C})"
 else
-  echo "Error: Template file ${__TEMPLATE} is noy found." && exit 1
+  echo "Error: Template file ${__TEMPLATE_C} is noy found." && exit 1
 fi
+# check destination directory
 if [ ! -d ${__DESTDIR} ]; then
   echo "Error: Detination dir ${__DESTDIR} is noy found." && exit 1
 fi
 
+# check cert redirect template
+if [ -e ${__TEMPLATE_R} ]; then
+  cp ${__TEMPLATE_R} ${__TMP}
+  __PROCFILE_R="${__TMP}/$(basename ${__TEMPLATE_R})"
+else
+  echo "Error: Template file ${__TEMPLATE_R} is noy found." && exit 1
+fi
+
+# check ssh connectable
+if [ $( can_connect ${__DUSER} ${__TARGET} ) != 0  ]; then
+    echo "Error: ${__TARGET} can't connect."
+    exit 1
+fi
+
+# escape path delimiter
 __ACCESSLOG=$( echo "${__ACCESSLOG}" | sed -e "s%/%\\\\/%g")
 __ERRORLOG=$( echo "${__ERRORLOG}" | sed -e "s%/%\\\\/%g")
 __WEBROOT=$( echo "${__WEBROOT}" | sed -e "s%/%\\\\/%g")
 
-sed -i "" -e "s/__LISTEN__/${__LISTEN}/g" ${__PROCFILE}
-sed -i "" -e "s/__DOMAIN__/${__DOMAIN}/g" ${__PROCFILE}
-sed -i "" -e "s/__ACCESSLOG__/${__ACCESSLOG}/g" ${__PROCFILE}
-sed -i "" -e "s/__ERRORLOG__/${__ERRORLOG}/g" ${__PROCFILE}
-sed -i "" -e "s/__WEBROOT__/${__WEBROOT}/g" ${__PROCFILE}
+# replace placeholders cert challenge template
+sed -i "" -e "s/__LISTEN__/${__LISTEN}/g"                                     \
+          -e "s/__DOMAIN__/${__DOMAIN}/g"                                     \
+          -e "s/__ACCESSLOG__/${__ACCESSLOG}/g"                               \
+          -e "s/__ERRORLOG__/${__ERRORLOG}/g"                                 \
+          -e "s/__WEBROOT__/${__WEBROOT}/g"                                   \
+          ${__PROCFILE_C}
+
+# escape path delimiter
+__TGTPRX=$( echo "${__TGTPRX}" | sed -e "s%/%\\\\/%g")
+
+# replace placeholders cert redirect template
+sed -i "" -e "s/__LISTEN__/${__TGTLISTEN}/g"                                  \
+          -e "s/__DOMAIN__/${__DOMAIN}/g"                                     \
+          -e "s/__PROXYPASS__/${__TGTPRX}/g"                                  \
+          ${__PROCFILE_R}
+
 
 if [ "${__TEST}" -ne 0 ]; then
-  cat "${__PROCFILE}"
+  echo "---- cert challenge config ------------------------------------------------"
+  echo "------ ${__NGINXCONF_C}"
+  cat "${__PROCFILE_C}"
+  echo "---- cert redirect config ------------------------------------------------"
+  echo "------ ${__NGINXCONF_R}"
+  cat "${__PROCFILE_R}"
 else
+  # At local
   # backup nginx config
-  if [ -e ${__NGINXCONF} ]; then
-    sudo mv "${__NGINXCONF}" "${__NGINXCONF}.${__PROCDATE}~"
-    [ ${__DBG} -ne 0 ] && ls -la "${__NGINXCONF}.${__PROCDATE}~"
+  if [ -e ${__NGINXCONF_C} ]; then
+    sudo mv "${__NGINXCONF_C}" "${__NGINXCONF_C}.${__PROCDATE}~"
+    [ ${__DBG} -ne 0 ] && ls -la "${__NGINXCONF_C}.${__PROCDATE}~"
   fi
-  sudo cp ${__PROCFILE} ${__NGINXCONF}
+  sudo cp ${__PROCFILE_C} ${__NGINXCONF_C}
+  # not posix
+  # sudo mv -b --suffix=.${__PROCDATE}~ ${__PROCFILE_C} ${__NGINXCONF_C}
   if [ "${__DBG}" -ne 0 ]; then
-    cat "${__NGINXCONF}"
+    cat "${__NGINXCONF_C}"
   fi
-  sudo service nginx reload 2>&1
+  # sudo service nginx reload 2>&1
 
+  # At remote
+
+  # # ControlMaster:  Aggregate TCP sessions
+  # # ControlPath:    The path name of the socket for controlling the aggregated TCP session
+  # # ControlPersist: Keep the Master connection
+  # __SSH_OPT="-q -o ControlMaster=auto -o ControlPath=/tmp/acme-%r@%h:%p -o ControlPersist=5"
+  # # Create TEMP Dir
+  # __TMP_R=$(sudo -u ${__DUSER} ssh -n ${__SSH_OPT} ${__TARGET} mktemp -d)
+
+  # sudo -u ${__DUSER} scp ${__SSH_OPT} ${__PROCFILE_R} ${__TARGET}:${__TMPDIR}/$(basename ${__PROCFILE_R})
+
+  # # sudo -u ${__DUSER} ssh -n ${__SSH_OPT}
+  # # sudo -u ${__DUSER} ssh ${__SSH_OPT} ${__TARGET} "/bin/sh -C \" ls -la \" "
+
+  # # sudo -u ${__DUSER} ssh      -n ${__SSH_OPT} ${__TARGET} rm -rf ${__TMP_R}
+  # sudo -u ${__DUSER} ssh -O exit ${__SSH_OPT} ${__TARGET}
 
 fi
 

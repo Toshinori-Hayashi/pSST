@@ -6,15 +6,15 @@
 # __WEBROOT="/usr/local/www/htdocs"
 # __DESTDIR="/usr/local/etc/nginx/sites"
 # __TEMPLATE_C="/path/to/template/certchlg.nginx.conf.template"
-
+# __NGINXCONF_C_FILE=".acme.challeng.site"
 # __LISTEN="80"
 # __ACCESSLOG="/var/log/nginx/acme-challenge.access.log"
 # __ERRORLOG="/var/log/nginx/acme-challenge.error.log error"
-# __NGINXCONFFILE=".acme.challeng.site"
 
 # __DUSER="distribute_user"		# use ssh
 # __TARGET="hostname_or_ip"
 # __TEMPLATE_R="/path/to/template/certredirect.nginx.conf.template"
+# __NGINXCONF_R_FILE=".acme.proxy.site"
 # __TGTLISTEN="192.168.1.111:80"
 # __TGTDIR="/usr/local/etc/nginx/sites"
 # __TGTPRX="http://cert.exsample.com"
