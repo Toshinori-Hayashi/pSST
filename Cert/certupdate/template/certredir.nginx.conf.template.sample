@@ -10,10 +10,11 @@ server {    #
   # error_log   __ERRORLOG__;
 
   location ^~ /.well-known/acme-challenge/ {
-    proxy_pass  __PROXYPASS__
+    proxy_pass  __PROXYPASS__;
   }
 
   location / {
     rewrite     ^ https://$http_host$request_uri? permanent;
   }
 }
+

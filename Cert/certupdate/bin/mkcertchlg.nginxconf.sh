@@ -26,6 +26,7 @@ __ERRORLOG="/var/log/nginx/acme-challenge.error.log error"
 
 __LOG="/dev/null"
 __TMP=$(mktemp -d ${__COMMAND}.XXXXXXXX)
+chmod 755 ${__TMP}
 
 trap "rm -rf ${__TMP}" EXIT
 
@@ -51,6 +52,9 @@ _EOT_
   exit 1
 }
 
+# Usage
+#   test $( can_connect ${__DUSER} ${__TARGET} ) != 0 && echo "NG"
+#
 can_connect(){
   if [ -z "${1}" ]; then
     echo >&2 "Error: can_connect: require sudo user name."
@@ -190,45 +194,54 @@ sed -i "" -e "s/__LISTEN__/${__TGTLISTEN}/g"                                  \
           -e "s/__PROXYPASS__/${__TGTPRX}/g"                                  \
           ${__PROCFILE_R}
 
-
-if [ "${__TEST}" -ne 0 ]; then
+if [ "${__DBG}" -ne 0 ] || [ "${__TEST}" -ne 0 ]; then
   echo "---- cert challenge config ------------------------------------------------"
   echo "------ ${__NGINXCONF_C}"
-  cat "${__PROCFILE_C}"
+  cat "${__NGINXCONF_C}"
   echo "---- cert redirect config ------------------------------------------------"
   echo "------ ${__NGINXCONF_R}"
   cat "${__PROCFILE_R}"
-else
+fi
+
+## TEST mode do not distribute
+if [ "${__TEST}" -eq 0 ]; then
+  #
   # At local
+  #
   # backup nginx config
   if [ -e ${__NGINXCONF_C} ]; then
     sudo mv "${__NGINXCONF_C}" "${__NGINXCONF_C}.${__PROCDATE}~"
     [ ${__DBG} -ne 0 ] && ls -la "${__NGINXCONF_C}.${__PROCDATE}~"
   fi
   sudo cp ${__PROCFILE_C} ${__NGINXCONF_C}
-  # not posix
-  # sudo mv -b --suffix=.${__PROCDATE}~ ${__PROCFILE_C} ${__NGINXCONF_C}
-  if [ "${__DBG}" -ne 0 ]; then
-    cat "${__NGINXCONF_C}"
-  fi
-  # sudo service nginx reload 2>&1
+  sudo service nginx reload 2>&1
 
+  #
   # At remote
+  #
 
-  # # ControlMaster:  Aggregate TCP sessions
-  # # ControlPath:    The path name of the socket for controlling the aggregated TCP session
-  # # ControlPersist: Keep the Master connection
-  # __SSH_OPT="-q -o ControlMaster=auto -o ControlPath=/tmp/acme-%r@%h:%p -o ControlPersist=5"
-  # # Create TEMP Dir
-  # __TMP_R=$(sudo -u ${__DUSER} ssh -n ${__SSH_OPT} ${__TARGET} mktemp -d)
+  # ControlMaster:  Aggregate TCP sessions
+  # ControlPath:    The path name of the socket for controlling the aggregated TCP session
+  # ControlPersist: Keep the Master connection
+  __SSH_OPT="-q -o ControlMaster=auto -o ControlPath=/tmp/acme-%r@%h:%p -o ControlPersist=5"
+  # Create TEMP Dir
+  __TMP_R=$(sudo -u ${__DUSER} ssh -n ${__SSH_OPT} ${__TARGET} mktemp -d)
+  [ ${__DBG} -ne 0 ] && cu_debug "TMP remote      = ${__TMP_R}"
 
-  # sudo -u ${__DUSER} scp ${__SSH_OPT} ${__PROCFILE_R} ${__TARGET}:${__TMPDIR}/$(basename ${__PROCFILE_R})
+  sudo -u ${__DUSER} scp ${__SSH_OPT} ${__PROCFILE_R} ${__TARGET}:${__TMP_R}/$(basename ${__PROCFILE_R})
 
-  # # sudo -u ${__DUSER} ssh -n ${__SSH_OPT}
-  # # sudo -u ${__DUSER} ssh ${__SSH_OPT} ${__TARGET} "/bin/sh -C \" ls -la \" "
+  sudo -u ${__DUSER} ssh -n ${__SSH_OPT} ${__TARGET} ":                       ;\
+    sudo test -e ${__NGINXCONF_R}                                             \
+      && sudo mv ${__NGINXCONF_R} ${__NGINXCONF_R}.${__PROCDATE}~             ;\
+    sudo cp ${__TMP_R}/$(basename ${__PROCFILE_R}) ${__NGINXCONF_R}           ;\
+    sudo chown root:wheel ${__NGINXCONF_R}                                    ;\
+    sudo chmod 644   ${__NGINXCONF_R}                                         ;\
+    sudo service nginx reload 2>&1 "
 
-  # # sudo -u ${__DUSER} ssh      -n ${__SSH_OPT} ${__TARGET} rm -rf ${__TMP_R}
-  # sudo -u ${__DUSER} ssh -O exit ${__SSH_OPT} ${__TARGET}
+  # remove temp
+  sudo -u ${__DUSER} ssh      -n ${__SSH_OPT} ${__TARGET} rm -rf ${__TMP_R}
+  # Terminate the master process
+  sudo -u ${__DUSER} ssh -O exit ${__SSH_OPT} ${__TARGET}
 
 fi
 
